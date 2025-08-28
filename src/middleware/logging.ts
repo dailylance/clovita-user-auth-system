@@ -1,23 +1,34 @@
 import { Request, Response, NextFunction } from 'express';
 import pinoHttp from 'pino-http';
 import { Prisma } from '@prisma/client';
-import { db } from '../lib/db';
-import logger from '../lib/logger';
-import config from '../lib/config';
-import { RequestLogData, AuthenticatedRequest } from '../types';
+import { db } from '../lib/db.js';
+import logger from '../lib/logger.js';
+import config from '../lib/config.js';
+import type { RequestLogData, AuthenticatedRequest } from '../types/index.js';
 
-const pinoHttpLogger = pinoHttp({
+// Define minimal factory and middleware types to avoid using 'any'
+type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+type HttpMiddleware = (req: Request, res: Response, next: NextFunction) => void;
+type PinoHttpOptions = {
+  logger: import('pino').Logger;
+  customLogLevel?: (req: Request, res: Response, err?: Error) => LogLevel;
+  customSuccessMessage?: (req: Request, res: Response) => string;
+  customErrorMessage?: (req: Request, res: Response, err: Error) => string;
+  customProps?: (req: Request, res: Response) => Record<string, unknown>;
+};
+const pinoHttpFactory = pinoHttp as unknown as (opts: PinoHttpOptions) => HttpMiddleware;
+const pinoHttpLogger = pinoHttpFactory({
   logger,
-  customLogLevel: (_req, res, err) => {
+  customLogLevel: (_req: Request, res: Response, err: Error | undefined) => {
     if (res.statusCode >= 400 && res.statusCode < 500) return 'warn';
     if (res.statusCode >= 500 || err) return 'error';
     return 'info';
   },
-  customSuccessMessage: (req, res) => {
+  customSuccessMessage: (req: Request, res: Response) => {
     return `${req.method} ${req.url} - ${res.statusCode}`;
   },
-  customErrorMessage: (req, res, err) => {
-    return `${req.method} ${req.url} - ${res.statusCode} - ${err.message}`;
+  customErrorMessage: (req: Request, res: Response, err: Error) => {
+    return `${req.method} ${req.url} - ${res.statusCode} - ${err?.message}`;
   },
   customProps: (req: Request) => ({
     requestId: (req as AuthenticatedRequest).requestId,
@@ -44,9 +55,21 @@ export const dbLogger = async (req: Request, res: Response, next: NextFunction):
     if (config.LOG_DB_SAMPLE_RATE < 1 && Math.random() > config.LOG_DB_SAMPLE_RATE) return;
     const responseTime = Date.now() - startTime;
     
+    const redactSensitive = (obj: unknown): unknown => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const copy: Record<string, unknown> = Array.isArray(obj) ? [...(obj as unknown[])] as unknown as Record<string, unknown> : { ...(obj as Record<string, unknown>) };
+      const sensitive = ['password', 'authorization', 'jwt', 'token', 'secret'];
+      for (const key of Object.keys(copy)) {
+        if (sensitive.includes(key.toLowerCase())) copy[key] = '[REDACTED]';
+        else if (copy[key] && typeof copy[key] === 'object') copy[key] = redactSensitive(copy[key] as unknown);
+      }
+      return copy;
+    };
+
     const safeTruncate = (val: unknown) => {
       try {
-        const str = typeof val === 'string' ? val : JSON.stringify(val);
+  const v = redactSensitive(val as unknown);
+        const str = typeof v === 'string' ? v : JSON.stringify(v);
         if (str.length > config.LOG_DB_MAX_BODY_LENGTH) {
           return str.slice(0, config.LOG_DB_MAX_BODY_LENGTH) + `...(+${str.length - config.LOG_DB_MAX_BODY_LENGTH} more)`;
         }

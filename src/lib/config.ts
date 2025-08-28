@@ -32,6 +32,10 @@ const configSchema = z.object({
   LOG_DB_MAX_BODY_LENGTH: z.coerce.number().default(2000),
   // Prisma logging controls
   PRISMA_LOG_QUERIES: z.coerce.boolean().default(false),
+  // Cache controls
+  ENABLE_CACHE: z.coerce.boolean().default(true),
+  CACHE_TTL_SECONDS: z.coerce.number().default(60),
+  CACHE_MAX_ITEMS: z.coerce.number().default(10000),
 });
 
 const configResult = configSchema.safeParse(process.env);

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { UserService } from '../services/userService';
-import { asyncHandler } from '../middleware/errorHandler';
-import { AuthenticatedRequest } from '../types';
+import { UserService } from '../services/userService.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import type { AuthenticatedRequest } from '../types/index.js';
 
 export const registerUser = asyncHandler(async (req: Request, res: Response) => {
   const user = await UserService.createUser(req.body, req.requestId);

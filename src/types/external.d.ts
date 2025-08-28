@@ -15,3 +15,13 @@ declare module 'ioredis' {
   }
   export default IORedis;
 }
+
+// Minimal ambient types for lru-cache (v11 ships its own types; this is a safety net)
+declare module 'lru-cache' {
+  export class LRUCache<K extends string = string, V = unknown> {
+    constructor(options?: { max?: number; ttl?: number });
+    get(key: K): V | undefined;
+    set(key: K, value: V, options?: { ttl?: number }): void;
+    delete(key: K): void;
+  }
+}

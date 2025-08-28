@@ -9,7 +9,7 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgresql://postgres:password@db:5432/express_template
+  - DATABASE_URL=postgresql://postgres:password@pgbouncer:6432/express_template
       - JWT_SECRET=production-jwt-secret-change-me
       - BCRYPT_ROUNDS=12
       - BASIC_AUTH_USERNAME=admin
@@ -47,6 +47,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.23.1
+    environment:
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+      - DB_HOST=db
+      - DB_NAME=express_template
+      - POOL_MODE=transaction
+      - MAX_CLIENT_CONN=10000
+      - DEFAULT_POOL_SIZE=50
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "6432:6432"
     restart: unless-stopped
 
   redis:

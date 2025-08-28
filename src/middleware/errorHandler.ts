@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
-import logger from '../lib/logger';
-import { ApiError } from '../types';
+import logger from '../lib/logger.js';
+import type { ApiError } from '../types/index.js';
 
 export class AppError extends Error {
   public status: number;

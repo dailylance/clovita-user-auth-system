@@ -5,15 +5,13 @@ import compression from 'compression';
 import rateLimit, { type Store as RateLimitStore } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import Redis from 'ioredis';
-import cluster from 'node:cluster';
-import os from 'os';
-import { db } from './lib/db';
-import config from './lib/config';
-import logger from './lib/logger';
-import { requestIdMiddleware } from './middleware/requestId';
-import { httpLogger, dbLogger } from './middleware/logging';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler';
-import routes from './routes';
+import { db } from './lib/db.js';
+import config from './lib/config.js';
+import logger from './lib/logger.js';
+import { requestIdMiddleware } from './middleware/requestId.js';
+import { httpLogger, dbLogger } from './middleware/logging.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import routes from './routes/index.js';
 
 declare global {
   namespace Express {
@@ -40,7 +38,7 @@ app.set('trust proxy', config.TRUST_PROXY);
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: config.CORS_ORIGIN.split(',').map(origin => origin.trim()),
+  origin: config.CORS_ORIGIN.split(',').map((origin: string) => origin.trim()),
   credentials: true,
 }));
 
@@ -162,39 +160,9 @@ async function startServer() {
   }
 }
 
-const isMainEntrypoint = (() => {
-  try {
-    // ESM environment
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta && import.meta.url) {
-      // @ts-ignore
-      const current = new URL(import.meta.url).pathname;
-      const argv = process.argv[1] ? new URL(`file://${process.argv[1]}`).pathname : '';
-      return current === argv;
-    }
-  } catch { /* ignore */ }
-  try {
-    // CJS environment
-    // @ts-ignore
-    return typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module;
-  } catch {
-    return false;
-  }
-})();
-
-if (isMainEntrypoint) {
-  const shouldCluster = config.ENABLE_CLUSTER && config.NODE_ENV === 'production' && cluster.isPrimary;
-  if (shouldCluster) {
-    const workers = Math.max(1, Math.min(config.WORKER_COUNT, os.cpus().length));
-    logger.info({ workers }, 'Starting cluster');
-    for (let i = 0; i < workers; i++) cluster.fork();
-    cluster.on('exit', (worker, code, signal) => {
-      logger.warn({ pid: worker.process.pid, code, signal }, 'Worker exited; starting a new one');
-      cluster.fork();
-    });
-  } else {
-    startServer();
-  }
+if (process.env['NODE_ENV'] !== 'test') {
+  // For clustering, prefer PM2 exec_mode=cluster or container orchestration
+  startServer();
 }
 
 export default app;

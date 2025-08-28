@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
-import { db } from '../lib/db';
-import { asyncHandler } from '../middleware/errorHandler';
+import { db } from '../lib/db.js';
+import { asyncHandler } from '../middleware/errorHandler.js';
 
 export const healthCheck = asyncHandler(async (req: Request, res: Response) => {
   const dbHealth = await db.healthCheck();

@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import { db } from '../lib/db';
-import { hashPassword, comparePassword, generateToken } from '../middleware/auth';
-import { AppError } from '../middleware/errorHandler';
-import { CreateUserInput, LoginInput, User } from '../types';
+import { db } from '../lib/db.js';
+import { hashPassword, comparePassword, generateToken } from '../middleware/auth.js';
+import { AppError } from '../middleware/errorHandler.js';
+import type { CreateUserInput, LoginInput, User } from '../types/index.js';
+import cache from '../lib/cache.js';
 
 const createUserSchema = z.object({
   email: z.string().email(),
@@ -58,6 +59,12 @@ export class UserService {
       },
     });
 
+    // Invalidate relevant caches
+    await Promise.all([
+      cache.del('users:all'),
+      cache.del(`user:${user.id}`),
+    ]);
+
     return user;
   }
 
@@ -93,7 +100,11 @@ export class UserService {
   }
 
   static async getUserById(id: string, _requestId?: string): Promise<User | null> {
-    const user = await db.client.user.findUnique({
+  const cacheKey = `user:${id}`;
+  const cached = await cache.get<User | null>(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const user = await db.client.user.findUnique({
       where: { id },
       select: {
         id: true,
@@ -105,11 +116,16 @@ export class UserService {
       },
     });
 
-    return user;
+  await cache.set(cacheKey, user);
+  return user;
   }
 
   static async getAllUsers(_requestId?: string): Promise<User[]> {
-    const users = await db.client.user.findMany({
+  const cacheKey = 'users:all';
+  const cached = await cache.get<User[]>(cacheKey);
+  if (cached) return cached;
+
+  const users = await db.client.user.findMany({
       select: {
         id: true,
         email: true,
@@ -123,7 +139,8 @@ export class UserService {
       },
     });
 
-    return users;
+  await cache.set(cacheKey, users);
+  return users;
   }
 
   static async deleteUser(id: string, requestId?: string): Promise<void> {
@@ -138,5 +155,11 @@ export class UserService {
     await db.client.user.delete({
       where: { id },
     });
+
+    // Invalidate caches
+    await Promise.all([
+      cache.del('users:all'),
+      cache.del(`user:${id}`),
+    ]);
   }
 }

@@ -2,9 +2,9 @@ import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
-import { db } from '../lib/db';
-import config from '../lib/config';
-import { AuthenticatedRequest } from '../types';
+import { db } from '../lib/db.js';
+import config from '../lib/config.js';
+import type { AuthenticatedRequest } from '../types/index.js';
 
 const basicAuthSchema = z.object({
   username: z.string(),
