@@ -2,7 +2,11 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { type Store as RateLimitStore } from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
+import Redis from 'ioredis';
+import cluster from 'node:cluster';
+import os from 'os';
 import { db } from './lib/db';
 import config from './lib/config';
 import logger from './lib/logger';
@@ -29,6 +33,10 @@ declare global {
 
 const app = express();
 
+// Security best-practice
+app.disable('x-powered-by');
+app.set('trust proxy', config.TRUST_PROXY);
+
 // Security middleware
 app.use(helmet());
 app.use(cors({
@@ -36,26 +44,60 @@ app.use(cors({
   credentials: true,
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: config.RATE_LIMIT_WINDOW_MS,
-  max: config.RATE_LIMIT_MAX_REQUESTS,
-  message: {
-    success: false,
-    error: {
-      status: 429,
-      code: 'RATE_LIMIT_EXCEEDED',
-      message: 'Too many requests from this IP, please try again later.',
+// Rate limiting (Memory or Redis)
+const createRateLimiter = () => {
+  try {
+    if (config.RATE_LIMIT_STORE === 'redis' && config.REDIS_URL) {
+      const redis = new Redis(config.REDIS_URL, {
+        lazyConnect: true,
+        maxRetriesPerRequest: 1,
+        enableAutoPipelining: true,
+      });
+      // Connect asynchronously; if it fails, fallback will be used
+      redis.on('error', (err) => logger.warn({ err }, 'Redis error'));
+  return rateLimit({
+        windowMs: config.RATE_LIMIT_WINDOW_MS,
+        max: config.RATE_LIMIT_MAX_REQUESTS,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          success: false,
+          error: {
+            status: 429,
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: 'Too many requests from this IP, please try again later.',
+          },
+        },
+  store: new RedisStore({
+          // @ts-ignore type mismatch from store interface
+          sendCommand: (...args: string[]) => redis.call(...args as [string, ...string[]]) as unknown as Promise<unknown>,
+          prefix: 'rate-limit:',
+  }) as unknown as RateLimitStore,
+      });
+    }
+  } catch (err) {
+    logger.warn({ err }, 'Failed to initialize Redis rate limiter; falling back to memory');
+  }
+  return rateLimit({
+    windowMs: config.RATE_LIMIT_WINDOW_MS,
+    max: config.RATE_LIMIT_MAX_REQUESTS,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+      success: false,
+      error: {
+        status: 429,
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many requests from this IP, please try again later.',
+      },
     },
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use(limiter);
+  });
+};
+app.use(createRateLimiter());
 
 // Basic middleware
 app.use(compression());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: config.REQUEST_BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true }));
 
 // Custom middleware
@@ -66,38 +108,26 @@ app.use(dbLogger);
 // Routes
 app.use('/', routes);
 
-// Error handling
-app.use('/*splat', notFoundHandler);
+// Error handling: catch-all 404 handler placed after routes
+app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Graceful shutdown
-const gracefulShutdown = (signal: string) => {
-  logger.info(`📡 Received ${signal}, starting graceful shutdown...`);
-  
-  const server = app.listen(config.PORT, config.HOST, () => {
-    logger.info(`🚀 Server running at http://${config.HOST}:${config.PORT} in ${config.NODE_ENV} mode`);
-  });
-
-  process.on(signal, async () => {
-    logger.info('📡 Closing HTTP server...');
-    server.close(async () => {
-      logger.info('🔌 HTTP server closed');
-      
-      try {
-        await db.disconnect();
-        logger.info('👋 Database disconnected');
-        process.exit(0);
-      } catch (error) {
-        logger.error({ error }, '❌ Error during shutdown');
-        process.exit(1);
-      }
-    });
-
-    // Force close after 10 seconds
-    setTimeout(() => {
-      logger.error('⏰ Could not close connections in time, forcefully shutting down');
+const setupGracefulShutdown = (server: import('http').Server) => {
+  const shutdown = async (signal: string) => {
+    try {
+      logger.info({ signal }, 'Shutting down');
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await db.disconnect();
+      logger.info('Shutdown complete');
+      process.exit(0);
+    } catch (error) {
+      logger.error({ error }, 'Error during shutdown');
       process.exit(1);
-    }, 10000);
+    }
+  };
+  ['SIGTERM', 'SIGINT'].forEach((sig) => {
+    process.on(sig, () => shutdown(sig));
   });
 };
 
@@ -105,15 +135,14 @@ const gracefulShutdown = (signal: string) => {
 async function startServer() {
   try {
     await db.connect();
-    
-    const server = app.listen(config.PORT, config.HOST, () => {
-      logger.info(`🚀 Server running at http://${config.HOST}:${config.PORT} in ${config.NODE_ENV} mode`);
+  const server = app.listen(config.PORT, config.HOST, () => {
+      logger.info(`🚀 Worker ${process.pid} listening at http://${config.HOST}:${config.PORT} (${config.NODE_ENV})`);
     });
-
-    // Setup graceful shutdown
-    ['SIGTERM', 'SIGINT'].forEach(signal => {
-      process.on(signal, () => gracefulShutdown(signal));
-    });
+  // Tune HTTP server timeouts for proxies/load balancers
+  server.keepAliveTimeout = 65_000; // keep alive a bit over typical LB timeouts
+  server.headersTimeout = 67_000;   // slightly above keepAliveTimeout
+  server.requestTimeout = 0;        // disable per-request timeout; rely on LB timeouts
+    setupGracefulShutdown(server);
 
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {
@@ -133,8 +162,39 @@ async function startServer() {
   }
 }
 
-if (require.main === module) {
-  startServer();
+const isMainEntrypoint = (() => {
+  try {
+    // ESM environment
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta && import.meta.url) {
+      // @ts-ignore
+      const current = new URL(import.meta.url).pathname;
+      const argv = process.argv[1] ? new URL(`file://${process.argv[1]}`).pathname : '';
+      return current === argv;
+    }
+  } catch { /* ignore */ }
+  try {
+    // CJS environment
+    // @ts-ignore
+    return typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module;
+  } catch {
+    return false;
+  }
+})();
+
+if (isMainEntrypoint) {
+  const shouldCluster = config.ENABLE_CLUSTER && config.NODE_ENV === 'production' && cluster.isPrimary;
+  if (shouldCluster) {
+    const workers = Math.max(1, Math.min(config.WORKER_COUNT, os.cpus().length));
+    logger.info({ workers }, 'Starting cluster');
+    for (let i = 0; i < workers; i++) cluster.fork();
+    cluster.on('exit', (worker, code, signal) => {
+      logger.warn({ pid: worker.process.pid, code, signal }, 'Worker exited; starting a new one');
+      cluster.fork();
+    });
+  } else {
+    startServer();
+  }
 }
 
 export default app;

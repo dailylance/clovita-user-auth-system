@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
+import os from 'os';
 
 dotenv.config();
 
@@ -17,6 +18,20 @@ const configSchema = z.object({
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().default(100),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
   LOG_PRETTY: z.coerce.boolean().default(false),
+  // Scalability & infra toggles
+  ENABLE_CLUSTER: z.coerce.boolean().default(true),
+  WORKER_COUNT: z.coerce.number().default(os.cpus().length),
+  TRUST_PROXY: z.coerce.boolean().default(true),
+  REQUEST_BODY_LIMIT: z.string().default('1mb'),
+  // Rate limit store (memory or redis)
+  RATE_LIMIT_STORE: z.enum(['memory', 'redis']).default('memory'),
+  REDIS_URL: z.string().optional(),
+  // DB request logging controls
+  LOG_REQUESTS_TO_DB: z.coerce.boolean().default(false),
+  LOG_DB_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
+  LOG_DB_MAX_BODY_LENGTH: z.coerce.number().default(2000),
+  // Prisma logging controls
+  PRISMA_LOG_QUERIES: z.coerce.boolean().default(false),
 });
 
 const configResult = configSchema.safeParse(process.env);

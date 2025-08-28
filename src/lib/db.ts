@@ -1,5 +1,6 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import logger from './logger';
+import config from './config';
 
 class Database {
   private static instance: Database;
@@ -15,7 +16,7 @@ class Database {
   private constructor() {
     this.client = new PrismaClient({
       log: [
-        { emit: 'event', level: 'query' },
+        ...(config.PRISMA_LOG_QUERIES ? [{ emit: 'event', level: 'query' } as const] : []),
         { emit: 'event', level: 'error' },
         { emit: 'event', level: 'info' },
         { emit: 'event', level: 'warn' },
@@ -23,9 +24,11 @@ class Database {
     });
 
     // Event listeners for database monitoring
-    this.client.$on('query', (e: Prisma.QueryEvent) => {
-      logger.debug({ query: e.query, params: e.params, duration: e.duration }, 'Database query');
-    });
+    if (config.PRISMA_LOG_QUERIES) {
+      this.client.$on('query', (e: Prisma.QueryEvent) => {
+        logger.debug({ query: e.query, params: e.params, duration: e.duration }, 'Database query');
+      });
+    }
 
     this.client.$on('error', (e: Prisma.LogEvent) => {
       logger.error({ target: e.target }, 'Database error');

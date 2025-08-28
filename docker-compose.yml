@@ -17,9 +17,19 @@ services:
       - CORS_ORIGIN=http://localhost:3000
       - LOG_LEVEL=info
       - LOG_PRETTY=false
+      - ENABLE_CLUSTER=true
+      - TRUST_PROXY=true
+      - RATE_LIMIT_STORE=redis
+      - REDIS_URL=redis://redis:6379
+      - LOG_REQUESTS_TO_DB=false
+      - LOG_DB_SAMPLE_RATE=0.1
+      - LOG_DB_MAX_BODY_LENGTH=2000
+      - PRISMA_LOG_QUERIES=false
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   db:
@@ -38,6 +48,12 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
 
 volumes:
   postgres_data:
