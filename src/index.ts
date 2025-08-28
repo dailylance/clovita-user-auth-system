@@ -67,7 +67,7 @@ app.use(dbLogger);
 app.use('/', routes);
 
 // Error handling
-app.use('*', notFoundHandler);
+app.use('/*splat', notFoundHandler);
 app.use(errorHandler);
 
 // Graceful shutdown
