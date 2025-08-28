@@ -35,9 +35,9 @@ export const errorHandler = (
       status: 400,
       code: 'VALIDATION_ERROR',
       message: 'Invalid input data',
-      details: err.errors.map(e => ({
-        field: e.path.join('.'),
-        message: e.message,
+      details: err.issues.map((issue) => ({
+        field: issue.path.join('.'),
+        message: issue.message,
       })),
       requestId,
     };

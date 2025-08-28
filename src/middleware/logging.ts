@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import pinoHttp from 'pino-http';
+import { Prisma } from '@prisma/client';
 import { db } from '../lib/db';
 import logger from '../lib/logger';
-import { RequestLogData } from '../types';
+import { RequestLogData, AuthenticatedRequest } from '../types';
 
 const pinoHttpLogger = pinoHttp({
   logger,
@@ -17,9 +18,9 @@ const pinoHttpLogger = pinoHttp({
   customErrorMessage: (req, res, err) => {
     return `${req.method} ${req.url} - ${res.statusCode} - ${err.message}`;
   },
-  customProps: (req) => ({
-    requestId: (req as any).requestId,
-    userId: (req as any).user?.id,
+  customProps: (req: Request) => ({
+    requestId: (req as AuthenticatedRequest).requestId,
+    userId: (req as AuthenticatedRequest).user?.id,
   }),
 });
 
@@ -66,11 +67,11 @@ export const dbLogger = async (req: Request, res: Response, next: NextFunction):
           userId: logData.userId || null,
           statusCode: logData.statusCode || null,
           responseTime: logData.responseTime || null,
-          requestBody: logData.requestBody as any,
-          responseBody: logData.responseBody as any,
-          headers: logData.headers as any,
-          query: logData.query as any,
-          params: logData.params as any,
+          requestBody: logData.requestBody as Prisma.InputJsonValue,
+          responseBody: logData.responseBody as Prisma.InputJsonValue,
+          headers: logData.headers as Prisma.InputJsonValue,
+          query: logData.query as Prisma.InputJsonValue,
+          params: logData.params as Prisma.InputJsonValue,
         },
       });
     } catch (error) {

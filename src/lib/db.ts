@@ -1,9 +1,16 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import logger from './logger';
 
 class Database {
   private static instance: Database;
-  public client: PrismaClient;
+  public client: PrismaClient<{
+    log: [
+      { emit: 'event', level: 'query' },
+      { emit: 'event', level: 'error' },
+      { emit: 'event', level: 'info' },
+      { emit: 'event', level: 'warn' },
+    ]
+  }>;
 
   private constructor() {
     this.client = new PrismaClient({
@@ -15,12 +22,12 @@ class Database {
       ],
     });
 
-    // Type assertion for Prisma event types
-    (this.client as any).$on('query', (e: any) => {
+    // Event listeners for database monitoring
+    this.client.$on('query', (e: Prisma.QueryEvent) => {
       logger.debug({ query: e.query, params: e.params, duration: e.duration }, 'Database query');
     });
 
-    (this.client as any).$on('error', (e: any) => {
+    this.client.$on('error', (e: Prisma.LogEvent) => {
       logger.error({ target: e.target }, 'Database error');
     });
   }

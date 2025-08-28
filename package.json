@@ -2,6 +2,7 @@
   "name": "express-template",
   "version": "1.0.0",
   "description": "Production-grade Express + TypeScript backend template",
+  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
