@@ -5,13 +5,15 @@ import compression from 'compression';
 import rateLimit, { type Store as RateLimitStore } from 'express-rate-limit';
 import { RedisStore } from 'rate-limit-redis';
 import Redis from 'ioredis';
-import { db } from './lib/db.js';
+import cookieParser from 'cookie-parser';
 import config from './lib/config.js';
 import logger from './lib/logger.js';
 import { requestIdMiddleware } from './middleware/requestId.js';
 import { httpLogger, dbLogger } from './middleware/logging.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import routes from './routes/index.js';
+import crypto from 'crypto';
+import { db } from './lib/db.js';
 
 declare global {
   namespace Express {
@@ -42,6 +44,7 @@ app.use(cors({
   origin: config.CORS_ORIGIN.split(',').map((origin: string) => origin.trim()),
   credentials: true,
 }));
+app.use(cookieParser());
 
 // Rate limiting (Memory or Redis)
 const createRateLimiter = () => {
@@ -98,6 +101,23 @@ app.use(createRateLimiter());
 app.use(compression());
 app.use(express.json({ limit: config.REQUEST_BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true }));
+// Issue a CSRF double-submit cookie for browser flows (non-HttpOnly)
+app.use((req, res, next) => {
+  if (config.ENABLE_REFRESH_COOKIE && config.ENABLE_CSRF_FOR_REFRESH) {
+    const name = config.CSRF_COOKIE_NAME;
+    if (!req.cookies?.[name]) {
+      const token = crypto.randomBytes(16).toString('hex');
+      res.cookie(name, token, {
+        httpOnly: false,
+        sameSite: 'lax',
+        secure: process.env['NODE_ENV'] === 'production',
+        path: '/',
+        domain: config.REFRESH_COOKIE_DOMAIN,
+      });
+    }
+  }
+  next();
+});
 
 // Custom middleware
 app.use(requestIdMiddleware);
@@ -142,6 +162,17 @@ async function startServer() {
   server.headersTimeout = 67_000;   // slightly above keepAliveTimeout
   server.requestTimeout = 0;        // disable per-request timeout; rely on LB timeouts
     setupGracefulShutdown(server);
+
+    // Housekeeping: purge expired/revoked tokens periodically
+    const interval = setInterval(async () => {
+      try {
+        const threshold = new Date(Date.now() - config.TOKEN_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+        await db.client.token.deleteMany({ where: { OR: [ { expiresAt: { lt: new Date() } }, { revoked: true, usedAt: { lt: threshold } } ] } });
+      } catch (err) {
+        logger.warn({ err }, 'token cleanup failed');
+      }
+    }, config.CLEANUP_INTERVAL_MS);
+    process.on('exit', () => clearInterval(interval));
 
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {

@@ -116,6 +116,11 @@ Make the generated repository production-ready and easy to extend by an engineer
 
 See `.env.example` for all required environment variables, including email/SMTP and token TTLs.
 
+Additional auth flags:
+- `ENFORCE_EMAIL_VERIFIED_ON_LOGIN` (default false) — Block login until email is verified when true.
+- `ENABLE_REFRESH_COOKIE` (default true) — Set and accept an HttpOnly refresh token cookie on login/refresh/logout.
+- `REFRESH_COOKIE_NAME` (default `refresh_token`), `REFRESH_COOKIE_PATH` (default `/`), `REFRESH_COOKIE_DOMAIN` (optional).
+
 ## Docker
 
 Build and run with Docker:

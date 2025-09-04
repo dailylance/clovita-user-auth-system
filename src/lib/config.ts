@@ -39,6 +39,23 @@ const configSchema = z.object({
   // Auth lifetimes
   ACCESS_TOKEN_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(30),
+  // Auth behavior
+  ENFORCE_EMAIL_VERIFIED_ON_LOGIN: z.coerce.boolean().default(false),
+  ENABLE_REFRESH_COOKIE: z.coerce.boolean().default(true),
+  REFRESH_COOKIE_NAME: z.string().default('refresh_token'),
+  REFRESH_COOKIE_PATH: z.string().default('/'),
+  REFRESH_COOKIE_DOMAIN: z.string().optional(),
+  // CSRF for cookie-based refresh/logout
+  ENABLE_CSRF_FOR_REFRESH: z.coerce.boolean().default(true),
+  CSRF_COOKIE_NAME: z.string().default('XSRF-TOKEN'),
+  CSRF_HEADER_NAME: z.string().default('X-CSRF-Token'),
+  // Login backoff/lockout
+  LOGIN_MAX_ATTEMPTS: z.coerce.number().default(5),
+  LOGIN_WINDOW_MS: z.coerce.number().default(10 * 60 * 1000),
+  LOGIN_LOCKOUT_MS: z.coerce.number().default(15 * 60 * 1000),
+  // Housekeeping
+  TOKEN_RETENTION_DAYS: z.coerce.number().default(30),
+  CLEANUP_INTERVAL_MS: z.coerce.number().default(60 * 60 * 1000),
   // Email settings
   ENABLE_EMAIL: z.coerce.boolean().default(false),
   EMAIL_FROM: z.string().optional(),

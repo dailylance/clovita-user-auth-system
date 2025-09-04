@@ -5,12 +5,12 @@ import { db } from '../lib/db.js';
 import { asyncHandler as ah } from '../middleware/errorHandler.js';
 
 export const register = asyncHandler(async (req: Request, res: Response) => {
-  const { user, accessToken, refreshToken, emailVerificationToken } = await AuthService.register(req.body, req.requestId);
+  const { user, accessToken, refreshToken, emailVerificationToken } = await AuthService.register(req.body, req.requestId, res);
   res.status(201).json({ success: true, data: { user, accessToken, refreshToken, emailVerificationToken }, requestId: req.requestId });
 });
 
 export const login = asyncHandler(async (req: Request, res: Response) => {
-  const result = await AuthService.login(req.body, req.requestId);
+  const result = await AuthService.login(req.body, req.requestId, res);
   res.status(200).json({ success: true, data: result, requestId: req.requestId });
 });
 
@@ -19,12 +19,14 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
   if (req.ip) meta.ip = req.ip;
   const ua = req.headers['user-agent'];
   if (typeof ua === 'string' && ua) meta.userAgent = ua;
-  const result = await AuthService.refresh(req.body, meta, req.requestId);
+  const cookieToken = req.cookies?.['refresh_token'] ?? req.cookies?.[process.env['REFRESH_COOKIE_NAME'] ?? 'refresh_token'] ?? null;
+  const result = await AuthService.refresh(req.body, meta, req.requestId, res, cookieToken);
   res.status(200).json({ success: true, data: result, requestId: req.requestId });
 });
 
 export const logout = asyncHandler(async (req: Request, res: Response) => {
-  await AuthService.logout(req.body, req.requestId);
+  const cookieToken = req.cookies?.['refresh_token'] ?? req.cookies?.[process.env['REFRESH_COOKIE_NAME'] ?? 'refresh_token'] ?? null;
+  await AuthService.logout(req.body, req.requestId, res, cookieToken);
   res.status(200).json({ success: true, data: { loggedOut: true }, requestId: req.requestId });
 });
 

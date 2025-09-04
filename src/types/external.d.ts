@@ -25,3 +25,6 @@ declare module 'lru-cache' {
     delete(key: K): void;
   }
 }
+
+// Fallback in case types not picked up immediately
+declare module 'cookie-parser';

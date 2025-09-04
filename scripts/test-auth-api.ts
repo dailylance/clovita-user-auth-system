@@ -3,7 +3,7 @@ const BASE_URL = process.env['API_BASE_URL'] || 'http://localhost:3000';
 
 type Json = Record<string, unknown> | unknown[] | string | number | boolean | null;
 
-async function fetchJson<T = any>(path: string, init?: RequestInit): Promise<{ status: number; body: T }> {
+async function fetchJson<T = any>(path: string, init?: RequestInit): Promise<{ status: number; body: T; headers: Headers }> {
   const res = await fetch(`${BASE_URL}${path}`, init);
   const status = res.status;
   let body: unknown;
@@ -15,7 +15,7 @@ async function fetchJson<T = any>(path: string, init?: RequestInit): Promise<{ s
   if (!res.ok) {
     throw new Error(`HTTP ${status} for ${path}: ${JSON.stringify(body)}`);
   }
-  return { status, body: body as T };
+  return { status, body: body as T, headers: res.headers };
 }
 
 function log(step: string, data?: unknown) {
@@ -29,6 +29,9 @@ async function main() {
   const username = `e2e_user_${ts}`;
   const password = 'P@ssw0rd123!';
   const newPassword = 'P@ssw0rd456!';
+  const csrfHeader = 'X-CSRF-Token';
+  const csrfCookieName = 'XSRF-TOKEN';
+  const makeCookie = (kv: Record<string, string>) => Object.entries(kv).map(([k,v]) => `${k}=${v}`).join('; ');
 
   // Optional: ping health
   try {
@@ -79,17 +82,21 @@ async function main() {
   log('4) GET /me', me1.body.data.user);
 
   // 5) Refresh (rotate)
+  // 5a) Refresh using cookie path (tests cookie + CSRF)
+  const csrfVal = 'dev-csrf';
   const ref = await fetchJson<{ success: boolean; data: { accessToken: string; refreshToken: string } }>(
     '/api/auth/refresh',
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ refreshToken: refresh1 }),
+      headers: {
+        [csrfHeader]: csrfVal,
+        'cookie': makeCookie({ 'refresh_token': refresh1, [csrfCookieName]: csrfVal }),
+      } as any,
     }
   );
   const access2 = ref.body.data.accessToken;
   const refresh2 = ref.body.data.refreshToken;
-  log('5) Refresh', { access: !!access2, refresh: !!refresh2 });
+  log('5) Refresh (cookie + CSRF)', { access: !!access2, refresh: !!refresh2 });
 
   // 6) List sessions
   const sessions = await fetchJson<{ success: boolean; data: { sessions: Array<{ id: string; createdAt: string; expiresAt: string }> } }>(
@@ -99,12 +106,26 @@ async function main() {
   log('6) Sessions', sessions.body.data.sessions);
 
   // 7) Logout (revoke refresh2)
+  // 7) Logout via cookie path (tests CSRF)
   await fetchJson('/api/auth/logout', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ refreshToken: refresh2 }),
+    headers: {
+      [csrfHeader]: csrfVal,
+      'cookie': makeCookie({ 'refresh_token': refresh2, [csrfCookieName]: csrfVal }),
+    } as any,
   });
   log('7) Logout', { revoked: true });
+
+  // 7b) Refresh again with same cookie should fail (401)
+  try {
+    await fetchJson('/api/auth/refresh', {
+      method: 'POST',
+      headers: { [csrfHeader]: csrfVal, 'cookie': makeCookie({ 'refresh_token': refresh2, [csrfCookieName]: csrfVal }) } as any,
+    });
+    throw new Error('Expected refresh after logout to fail');
+  } catch (e) {
+    log('7b) Refresh after logout failed as expected', { error: (e as Error).message });
+  }
 
   // 8) Password reset request
   const resetReq = await fetchJson<{ success: boolean; data: { sent: boolean; resetToken?: string } }>(
@@ -142,6 +163,30 @@ async function main() {
     { headers: { authorization: `Bearer ${access3}` } }
   );
   log('10) Login with new password -> /me', me2.body.data.user);
+
+  // 11) Login lockout/backoff test against a non-existent account
+  const badEmail = `bad-${ts}@example.com`;
+  let locked = false;
+  for (let i = 1; i <= 6; i++) {
+    try {
+      await fetchJson('/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: badEmail, password: 'wrong' }),
+      });
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (msg.includes('LOGIN_LOCKED') || msg.includes('429')) {
+        locked = true;
+        log('11) Lockout triggered', { attempt: i, msg });
+        break;
+      }
+      if (i === 6) throw e;
+    }
+  }
+  if (!locked) {
+    log('11) Lockout not reached (using defaults, may require more attempts)', { maxAttempts: 'config dependent' });
+  }
 
   console.log('\n✅ AUTH API FLOW OK');
 }

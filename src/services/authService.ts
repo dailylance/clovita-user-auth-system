@@ -6,6 +6,7 @@ import config from '../lib/config.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { comparePassword, hashPassword } from '../middleware/auth.js';
 import { sendMail } from '../lib/mailer.js';
+import type { Response } from 'express';
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -40,7 +41,39 @@ function hashOpaqueToken(token: string) {
 }
 
 export class AuthService {
-  static async register(input: unknown, requestId?: string) {
+  // naive in-memory attempt tracker; for distributed prod use Redis
+  private static loginAttempts = new Map<string, { count: number; firstAt: number; lockedUntil?: number }>();
+  private static keyFor(email: string, ip?: string) { return `${email.toLowerCase()}|${ip ?? ''}`; }
+  private static registerFailure(email: string, ip?: string) {
+    const key = this.keyFor(email, ip);
+    const now = Date.now();
+    const win = config.LOGIN_WINDOW_MS;
+    const rec = this.loginAttempts.get(key);
+    if (!rec || now - rec.firstAt > win) {
+      this.loginAttempts.set(key, { count: 1, firstAt: now });
+    } else {
+      rec.count += 1;
+      if (rec.count >= config.LOGIN_MAX_ATTEMPTS) {
+        rec.lockedUntil = now + config.LOGIN_LOCKOUT_MS;
+      }
+      this.loginAttempts.set(key, rec);
+    }
+  }
+  private static clearAttempts(email: string, ip?: string) {
+    this.loginAttempts.delete(this.keyFor(email, ip));
+  }
+  private static isLocked(email: string, ip?: string) {
+    const rec = this.loginAttempts.get(this.keyFor(email, ip));
+    if (!rec) return false;
+    const now = Date.now();
+    if (rec.lockedUntil && rec.lockedUntil > now) return true;
+    if (now - rec.firstAt > config.LOGIN_WINDOW_MS) {
+      this.loginAttempts.delete(this.keyFor(email, ip));
+      return false;
+    }
+    return false;
+  }
+  static async register(input: unknown, requestId?: string, res?: Response) {
     const parsed = registerSchema.safeParse(input);
     if (!parsed.success) throw new AppError('Invalid input data', 400, 'VALIDATION_ERROR', requestId);
     const { email, username, password } = parsed.data;
@@ -81,22 +114,56 @@ export class AuthService {
     }
 
     const accessToken = signAccessToken(user.id);
-    const { refreshToken } = await this.issueRefreshToken(user.id, requestId);
+    const { refreshToken, expiresAt } = await this.issueRefreshToken(user.id, requestId);
+    // Optional: set refresh token cookie
+    if (config.ENABLE_REFRESH_COOKIE && res) {
+      res.cookie(config.REFRESH_COOKIE_NAME, refreshToken, {
+        httpOnly: true,
+        secure: process.env['NODE_ENV'] === 'production',
+        sameSite: 'lax',
+        path: config.REFRESH_COOKIE_PATH,
+        domain: config.REFRESH_COOKIE_DOMAIN,
+        expires: expiresAt,
+      });
+    }
     return { user, accessToken, refreshToken, emailVerificationToken: token };
   }
 
-  static async login(input: unknown, requestId?: string) {
+  static async login(input: unknown, requestId?: string, res?: Response) {
     const parsed = loginSchema.safeParse(input);
     if (!parsed.success) throw new AppError('Invalid input data', 400, 'VALIDATION_ERROR', requestId);
     const { email, password } = parsed.data;
-
+    // lockout check
+    if (this.isLocked(email)) {
+      throw new AppError('Account temporarily locked due to failed attempts', 429, 'LOGIN_LOCKED', requestId);
+    }
     const user = await db.client.user.findUnique({ where: { email } });
-    if (!user) throw new AppError('Invalid credentials', 401, 'INVALID_CREDENTIALS', requestId);
+    if (!user) {
+      this.registerFailure(email);
+      throw new AppError('Invalid credentials', 401, 'INVALID_CREDENTIALS', requestId);
+    }
     const ok = await comparePassword(password, user.password);
-    if (!ok) throw new AppError('Invalid credentials', 401, 'INVALID_CREDENTIALS', requestId);
+    if (!ok) {
+      this.registerFailure(email);
+      throw new AppError('Invalid credentials', 401, 'INVALID_CREDENTIALS', requestId);
+    }
+    this.clearAttempts(email);
 
+    if (config.ENFORCE_EMAIL_VERIFIED_ON_LOGIN && !user.emailVerifiedAt) {
+      throw new AppError('Email not verified', 403, 'EMAIL_NOT_VERIFIED', requestId);
+    }
     const accessToken = signAccessToken(user.id);
-    const { refreshToken } = await this.issueRefreshToken(user.id, requestId);
+    const { refreshToken, expiresAt } = await this.issueRefreshToken(user.id, requestId);
+    if (config.ENABLE_REFRESH_COOKIE && res) {
+      res.cookie(config.REFRESH_COOKIE_NAME, refreshToken, {
+        httpOnly: true,
+        secure: process.env['NODE_ENV'] === 'production',
+        sameSite: 'lax',
+        path: config.REFRESH_COOKIE_PATH,
+        domain: config.REFRESH_COOKIE_DOMAIN,
+        expires: expiresAt,
+      });
+    }
     return {
       user: { id: user.id, email: user.email, username: user.username, role: user.role, createdAt: user.createdAt, updatedAt: user.updatedAt, emailVerifiedAt: user.emailVerifiedAt ?? null },
       accessToken,
@@ -104,10 +171,17 @@ export class AuthService {
     };
   }
 
-  static async refresh(input: unknown, meta?: { ip?: string; userAgent?: string }, requestId?: string) {
-    const parsed = refreshSchema.safeParse(input);
-    if (!parsed.success) throw new AppError('Invalid input data', 400, 'VALIDATION_ERROR', requestId);
-    const { refreshToken } = parsed.data;
+  static async refresh(input: unknown, meta?: { ip?: string; userAgent?: string }, requestId?: string, res?: Response, cookieToken?: string | null) {
+    // Allow reading token from cookie if enabled
+    let refreshToken: string | undefined;
+    if (config.ENABLE_REFRESH_COOKIE && cookieToken) {
+      refreshToken = cookieToken;
+    } else {
+      const parsed = refreshSchema.safeParse(input);
+      if (!parsed.success) throw new AppError('Invalid input data', 400, 'VALIDATION_ERROR', requestId);
+      refreshToken = parsed.data.refreshToken;
+    }
+    if (!refreshToken) throw new AppError('Invalid input data', 400, 'VALIDATION_ERROR', requestId);
     const tokenHash = hashOpaqueToken(refreshToken);
 
     const record = await db.client.token.findUnique({ where: { tokenHash }, include: { user: true } });
@@ -119,14 +193,32 @@ export class AuthService {
     await db.client.token.update({ where: { id: record.id }, data: { usedAt: new Date(), revoked: true } });
     const newPair = await this.issueRefreshToken(record.userId, requestId, meta);
     const accessToken = signAccessToken(record.userId);
+    if (config.ENABLE_REFRESH_COOKIE && res) {
+      res.cookie(config.REFRESH_COOKIE_NAME, newPair.refreshToken, {
+        httpOnly: true,
+        secure: process.env['NODE_ENV'] === 'production',
+        sameSite: 'lax',
+        path: config.REFRESH_COOKIE_PATH,
+        domain: config.REFRESH_COOKIE_DOMAIN,
+        expires: newPair.expiresAt,
+      });
+    }
     return { accessToken, refreshToken: newPair.refreshToken };
   }
 
-  static async logout(input: unknown, requestId?: string) {
-    const parsed = refreshSchema.safeParse(input);
-    if (!parsed.success) throw new AppError('Invalid input data', 400, 'VALIDATION_ERROR', requestId);
-    const tokenHash = hashOpaqueToken(parsed.data.refreshToken);
+  static async logout(input: unknown, requestId?: string, res?: Response, cookieToken?: string | null) {
+    let token: string | undefined;
+    if (config.ENABLE_REFRESH_COOKIE && cookieToken) token = cookieToken;
+    else {
+      const parsed = refreshSchema.safeParse(input);
+      if (!parsed.success) throw new AppError('Invalid input data', 400, 'VALIDATION_ERROR', requestId);
+      token = parsed.data.refreshToken;
+    }
+    const tokenHash = hashOpaqueToken(token!);
     await db.client.token.updateMany({ where: { tokenHash, type: 'REFRESH', revoked: false }, data: { revoked: true, usedAt: new Date() } });
+    if (config.ENABLE_REFRESH_COOKIE && res) {
+      res.clearCookie(config.REFRESH_COOKIE_NAME, { path: config.REFRESH_COOKIE_PATH, domain: config.REFRESH_COOKIE_DOMAIN });
+    }
     return { success: true };
   }
 

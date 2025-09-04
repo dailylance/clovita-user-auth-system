@@ -1,17 +1,19 @@
 import { Router } from 'express';
 import { register, login, refresh, logout, verifyEmail, requestPasswordReset, resetPassword, listMySessions, revokeMySession, adminListUserSessions, adminRevokeUserSession } from '../controllers/authController.js';
 import { jwtAuth, requireRole } from '../middleware/auth.js';
+import { loginLimiter, refreshLimiter, passwordLimiter, registerLimiter } from '../middleware/rateLimiters.js';
+import { requireCsrfForRefresh } from '../middleware/csrf.js';
 
 const router = Router();
 
 // Public auth endpoints
-router.post('/register', register);
-router.post('/login', login);
-router.post('/refresh', refresh);
-router.post('/logout', logout);
-router.post('/verify-email', verifyEmail);
-router.post('/password/reset-request', requestPasswordReset);
-router.post('/password/reset', resetPassword);
+router.post('/register', registerLimiter, register);
+router.post('/login', loginLimiter, login);
+router.post('/refresh', refreshLimiter, requireCsrfForRefresh, refresh);
+router.post('/logout', refreshLimiter, requireCsrfForRefresh, logout);
+router.post('/verify-email', passwordLimiter, verifyEmail);
+router.post('/password/reset-request', passwordLimiter, requestPasswordReset);
+router.post('/password/reset', passwordLimiter, resetPassword);
 
 // Session management
 router.get('/sessions/me', jwtAuth, listMySessions);
