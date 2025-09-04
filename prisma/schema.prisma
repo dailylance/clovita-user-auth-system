@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -11,38 +8,241 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  username  String   @unique
+  id        String    @id @default(cuid())
+  email     String    @unique
+  username  String?   @unique
   password  String
-  role      String   @default("user")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  role      String    @default("user")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  reviews   reviews[]
 
   @@map("users")
 }
 
 model RequestLog {
-  id            String   @id @default(cuid())
-  requestId     String   @unique
-  method        String
-  url           String
-  userAgent     String?
-  ip            String?
-  userId        String?
-  statusCode    Int?
-  responseTime  Int?
-  requestBody   Json?
-  responseBody  Json?
-  headers       Json?
-  query         Json?
-  params        Json?
-  error         String?
-  createdAt     DateTime @default(now())
+  id        String   @id @default(cuid())
+  method    String
+  userId    String?
+  createdAt DateTime @default(now())
+  path      String
+  body      Json?
 
   @@map("request_logs")
-  @@index([createdAt])
-  @@index([method])
-  @@index([statusCode])
-  @@index([userId])
+}
+
+model attribute_options {
+  id          String     @id
+  attributeId String
+  value       String
+  label       String
+  sortOrder   Int        @default(0)
+  colorHex    String?
+  attributes  attributes @relation(fields: [attributeId], references: [id])
+
+  @@index([attributeId])
+}
+
+model attributes {
+  id                       String                     @id
+  code                     String                     @unique
+  name                     String
+  unit                     String?
+  helpText                 String?
+  searchable               Boolean                    @default(true)
+  facetable                Boolean                    @default(true)
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime
+  dataType                 AttributeDataType
+  scope                    AttributeScope
+  uiControl                UIControl
+  attribute_options        attribute_options[]
+  product_attribute_values product_attribute_values[]
+  variant_attribute_values variant_attribute_values[]
+  vertical_attributes      vertical_attributes[]
+
+  @@index([code])
+}
+
+model brands {
+  id       String     @id
+  name     String
+  slug     String?    @unique
+  products products[]
+}
+
+model categories {
+  id               String       @id
+  name             String
+  slug             String?      @unique
+  parentId         String?
+  verticalId       String?
+  categories       categories?  @relation("categoriesTocategories", fields: [parentId], references: [id])
+  other_categories categories[] @relation("categoriesTocategories")
+  verticals        verticals?   @relation(fields: [verticalId], references: [id])
+  products         products[]
+
+  @@index([verticalId])
+}
+
+model images {
+  id        String    @id
+  url       String
+  alt       String?
+  productId String?
+  products  products? @relation(fields: [productId], references: [id])
+}
+
+model manufacturers {
+  id   String @id
+  name String
+}
+
+model product_attribute_values {
+  id           String     @id
+  productId    String
+  attributeId  String
+  valueString  String?
+  valueNumber  Float?
+  valueBoolean Boolean?
+  valueDate    DateTime?
+  valueJson    Json?
+  optionIds    String[]
+  locale       String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime
+  attributes   attributes @relation(fields: [attributeId], references: [id])
+  products     products   @relation(fields: [productId], references: [id])
+
+  @@index([attributeId])
+  @@index([attributeId, valueNumber])
+  @@index([attributeId, valueString])
+  @@index([productId])
+}
+
+model product_variants {
+  id                       String                     @id
+  productId                String
+  sku                      String?                    @unique
+  attributes               Json?
+  price                    Float
+  mrp                      Float?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime
+  products                 products                   @relation(fields: [productId], references: [id])
+  variant_attribute_values variant_attribute_values[]
+
+  @@index([productId])
+}
+
+model products {
+  id                       String                     @id
+  title                    String
+  slug                     String                     @unique
+  sku                      String?                    @unique
+  brandId                  String?
+  categoryId               String?
+  attributes               Json?
+  defaultImageId           String?
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime
+  description              String?
+  images                   images[]
+  product_attribute_values product_attribute_values[]
+  product_variants         product_variants[]
+  brands                   brands?                    @relation(fields: [brandId], references: [id])
+  categories               categories?                @relation(fields: [categoryId], references: [id])
+  reviews                  reviews[]
+
+  @@index([slug])
+}
+
+model reviews {
+  id        String   @id
+  productId String
+  userId    String?
+  rating    Int
+  createdAt DateTime @default(now())
+  comment   String?
+  products  products @relation(fields: [productId], references: [id])
+  users     User?    @relation(fields: [userId], references: [id])
+}
+
+model variant_attribute_values {
+  id               String           @id
+  variantId        String
+  attributeId      String
+  valueString      String?
+  valueNumber      Float?
+  valueBoolean     Boolean?
+  valueDate        DateTime?
+  valueJson        Json?
+  optionIds        String[]
+  locale           String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime
+  attributes       attributes       @relation(fields: [attributeId], references: [id])
+  product_variants product_variants @relation(fields: [variantId], references: [id])
+
+  @@index([attributeId])
+  @@index([variantId])
+}
+
+model vertical_attributes {
+  id            String     @id
+  verticalId    String
+  attributeId   String
+  isRequired    Boolean    @default(false)
+  isTitlePart   Boolean    @default(false)
+  isRecommended Boolean    @default(false)
+  group         String?
+  order         Int        @default(0)
+  min           Float?
+  max           Float?
+  regex         String?
+  dependsOn     Json?
+  attributes    attributes @relation(fields: [attributeId], references: [id])
+  verticals     verticals  @relation(fields: [verticalId], references: [id])
+
+  @@unique([verticalId, attributeId])
+  @@index([attributeId])
+  @@index([verticalId])
+}
+
+model verticals {
+  id                  String                @id
+  name                String
+  slug                String                @unique
+  description         String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime
+  categories          categories[]
+  vertical_attributes vertical_attributes[]
+}
+
+enum AttributeDataType {
+  STRING
+  NUMBER
+  BOOLEAN
+  DATE
+  ENUM
+  MULTI_ENUM
+  JSON
+}
+
+enum AttributeScope {
+  PRODUCT
+  VARIANT
+  LISTING
+}
+
+enum UIControl {
+  text
+  textarea
+  number
+  select
+  multiselect
+  toggle
+  color
+  chips
 }
