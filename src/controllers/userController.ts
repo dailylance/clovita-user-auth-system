@@ -1,26 +1,17 @@
 import { Request, Response } from 'express';
 import { UserService } from '../services/userService.js';
+import { AuthService } from '../services/authService.js';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../types/index.js';
 
 export const registerUser = asyncHandler(async (req: Request, res: Response) => {
-  const user = await UserService.createUser(req.body, req.requestId);
-  
-  res.status(201).json({
-    success: true,
-    data: { user },
-    requestId: req.requestId,
-  });
+  const { user, accessToken, refreshToken, emailVerificationToken } = await AuthService.register(req.body, req.requestId);
+  res.status(201).json({ success: true, data: { user, accessToken, refreshToken, emailVerificationToken }, requestId: req.requestId });
 });
 
 export const loginUser = asyncHandler(async (req: Request, res: Response) => {
-  const result = await UserService.login(req.body, req.requestId);
-  
-  res.status(200).json({
-    success: true,
-    data: result,
-    requestId: req.requestId,
-  });
+  const result = await AuthService.login(req.body, req.requestId);
+  res.status(200).json({ success: true, data: result, requestId: req.requestId });
 });
 
 export const getMe = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {

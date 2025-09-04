@@ -20,10 +20,11 @@ declare global {
       user?: {
         id: string;
         email: string;
-        username: string;
+  username: string | null;
         role: string;
         createdAt: Date;
         updatedAt: Date;
+  emailVerifiedAt?: Date | null;
       };
     }
   }

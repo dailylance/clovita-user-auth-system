@@ -79,18 +79,15 @@ export const jwtAuth = async (req: AuthenticatedRequest, res: Response, next: Ne
       throw new Error('No token provided');
     }
     
-    const decoded = jwt.verify(token, config.JWT_SECRET) as { userId: string };
-    
+    const decoded = jwt.verify(token, config.JWT_SECRET) as { userId?: string; sub?: string };
+    const userId = decoded.userId ?? decoded.sub;
+    if (!userId) {
+      throw new Error('Invalid token payload');
+    }
+
     const user = await db.client.user.findUnique({
-      where: { id: decoded.userId },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      where: { id: userId },
+  select: { id: true, email: true, username: true, role: true, createdAt: true, updatedAt: true, emailVerifiedAt: true },
     });
 
     if (!user) {

@@ -13,9 +13,11 @@ model User {
   username  String?   @unique
   password  String
   role      String    @default("user")
+  emailVerifiedAt DateTime?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   reviews   reviews[]
+  tokens    Token[]
 
   @@map("users")
 }
@@ -168,6 +170,23 @@ model reviews {
   users     User?    @relation(fields: [userId], references: [id])
 }
 
+model Token {
+  id         String     @id @default(cuid())
+  userId     String
+  type       TokenType
+  tokenHash  String     @unique
+  expiresAt  DateTime
+  createdAt  DateTime   @default(now())
+  usedAt     DateTime?
+  revoked    Boolean    @default(false)
+  ip         String?
+  userAgent  String?
+  user       User       @relation(fields: [userId], references: [id])
+
+  @@index([userId, type])
+  @@map("tokens")
+}
+
 model variant_attribute_values {
   id               String           @id
   variantId        String
@@ -245,4 +264,10 @@ enum UIControl {
   toggle
   color
   chips
+}
+
+enum TokenType {
+  REFRESH
+  EMAIL_VERIFY
+  PASSWORD_RESET
 }

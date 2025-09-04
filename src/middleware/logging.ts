@@ -98,19 +98,21 @@ export const dbLogger = async (req: Request, res: Response, next: NextFunction):
     try {
       await db.client.requestLog.create({
         data: {
-          requestId: logData.requestId,
           method: logData.method,
-          url: logData.url,
-          userAgent: logData.userAgent || null,
-          ip: logData.ip || null,
           userId: logData.userId || null,
-          statusCode: logData.statusCode || null,
-          responseTime: logData.responseTime || null,
-          requestBody: logData.requestBody as Prisma.InputJsonValue,
-          responseBody: logData.responseBody as Prisma.InputJsonValue,
-          headers: logData.headers as Prisma.InputJsonValue,
-          query: logData.query as Prisma.InputJsonValue,
-          params: logData.params as Prisma.InputJsonValue,
+          path: logData.url,
+          body: {
+            requestId: logData.requestId,
+            userAgent: logData.userAgent || null,
+            ip: logData.ip || null,
+            statusCode: logData.statusCode || null,
+            responseTime: logData.responseTime || null,
+            requestBody: logData.requestBody,
+            responseBody: logData.responseBody,
+            headers: logData.headers,
+            query: logData.query,
+            params: logData.params,
+          } as Prisma.InputJsonValue,
         },
       });
     } catch (error) {

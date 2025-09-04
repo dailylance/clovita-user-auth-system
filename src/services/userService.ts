@@ -49,14 +49,7 @@ export class UserService {
         password: hashedPassword,
         role,
       },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+  select: { id: true, email: true, username: true, role: true, createdAt: true, updatedAt: true, emailVerifiedAt: true },
     });
 
     // Invalidate relevant caches
@@ -76,9 +69,7 @@ export class UserService {
 
     const { email, password } = validation.data;
 
-    const user = await db.client.user.findUnique({
-      where: { email },
-    });
+  const user = await db.client.user.findUnique({ where: { email } });
 
     if (!user || !(await comparePassword(password, user.password))) {
       throw new AppError('Invalid credentials', 401, 'INVALID_CREDENTIALS', requestId);
@@ -87,14 +78,7 @@ export class UserService {
     const token = generateToken(user.id);
 
     return {
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      },
+  user: { id: user.id, email: user.email, username: user.username, role: user.role, createdAt: user.createdAt, updatedAt: user.updatedAt, emailVerifiedAt: (user as any).emailVerifiedAt ?? null },
       token,
     };
   }
@@ -106,14 +90,7 @@ export class UserService {
 
   const user = await db.client.user.findUnique({
       where: { id },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        role: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+  select: { id: true, email: true, username: true, role: true, createdAt: true, updatedAt: true, emailVerifiedAt: true },
     });
 
   await cache.set(cacheKey, user);

@@ -18,10 +18,11 @@ export interface ApiResponse<T = unknown> {
 export interface User {
   id: string;
   email: string;
-  username: string;
+  username: string | null;
   role: string;
   createdAt: Date;
   updatedAt: Date;
+  emailVerifiedAt?: Date | null;
 }
 
 export interface CreateUserInput {
@@ -35,6 +36,8 @@ export interface LoginInput {
   email: string;
   password: string;
 }
+
+export interface RefreshInput { refreshToken: string }
 
 export interface AuthenticatedRequest extends Request {
   user?: User;

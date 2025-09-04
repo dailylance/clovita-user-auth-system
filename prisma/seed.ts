@@ -24,6 +24,7 @@ async function main() {
       username: 'admin',
       password: hashedAdminPassword,
       role: 'admin',
+      emailVerifiedAt: new Date(),
     },
   });
 
@@ -33,6 +34,7 @@ async function main() {
       username: 'john_doe',
       password: hashedPassword,
       role: 'user',
+      emailVerifiedAt: new Date(),
     },
   });
 
@@ -42,6 +44,7 @@ async function main() {
       username: 'jane_smith',
       password: hashedPassword,
       role: 'user',
+      emailVerifiedAt: new Date(),
     },
   });
 
@@ -51,6 +54,7 @@ async function main() {
       username: 'bob_wilson',
       password: hashedPassword,
       role: 'user',
+      emailVerifiedAt: new Date(),
     },
   });
 
@@ -62,8 +66,8 @@ async function main() {
   const sampleLogs = [
     {
       requestId: uuidv4(),
-      method: 'POST',
-      url: '/api/users/login',
+  method: 'POST',
+  url: '/api/users/login',
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       ip: '192.168.1.100',
       userId: adminUser.id,
@@ -78,8 +82,8 @@ async function main() {
     },
     {
       requestId: uuidv4(),
-      method: 'GET',
-      url: '/api/users/me',
+  method: 'GET',
+  url: '/api/users/me',
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
       ip: '192.168.1.101',
       userId: regularUser1.id,
@@ -93,8 +97,8 @@ async function main() {
     },
     {
       requestId: uuidv4(),
-      method: 'POST',
-      url: '/api/users/register',
+  method: 'POST',
+  url: '/api/users/register',
       userAgent: 'PostmanRuntime/7.32.3',
       ip: '10.0.0.50',
       statusCode: 201,
@@ -108,8 +112,8 @@ async function main() {
     },
     {
       requestId: uuidv4(),
-      method: 'GET',
-      url: '/api/users',
+  method: 'GET',
+  url: '/api/users',
       userAgent: 'curl/7.68.0',
       ip: '192.168.1.102',
       userId: adminUser.id,
@@ -123,8 +127,8 @@ async function main() {
     },
     {
       requestId: uuidv4(),
-      method: 'DELETE',
-      url: '/api/users/invalid-id',
+  method: 'DELETE',
+  url: '/api/users/invalid-id',
       userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
       ip: '192.168.1.103',
       userId: adminUser.id,
@@ -139,8 +143,8 @@ async function main() {
     },
     {
       requestId: uuidv4(),
-      method: 'GET',
-      url: '/api/health',
+  method: 'GET',
+  url: '/api/health',
       userAgent: 'healthcheck/1.0',
       ip: '172.17.0.1',
       statusCode: 200,
@@ -153,8 +157,8 @@ async function main() {
     },
     {
       requestId: uuidv4(),
-      method: 'POST',
-      url: '/api/users/login',
+  method: 'POST',
+  url: '/api/users/login',
       userAgent: 'axios/1.6.0',
       ip: '192.168.1.104',
       statusCode: 401,
@@ -170,9 +174,30 @@ async function main() {
   ];
 
   // Create request logs in batch
-  await prisma.requestLog.createMany({
-    data: sampleLogs,
-  });
+  // Adapt to RequestLog schema: path + body JSON.
+  for (const log of sampleLogs) {
+    await prisma.requestLog.create({
+      data: {
+        method: log.method,
+        userId: log.userId ?? null,
+        path: log.url,
+        createdAt: log.createdAt,
+        body: {
+          requestId: log.requestId,
+          userAgent: log.userAgent,
+          ip: log.ip,
+          statusCode: log.statusCode,
+          responseTime: log.responseTime,
+          requestBody: log.requestBody,
+          responseBody: log.responseBody,
+          headers: log.headers,
+          query: log.query,
+          params: log.params,
+          error: (log as any).error,
+        } as unknown as any,
+      },
+    });
+  }
 
   console.log(`✅ Created ${sampleLogs.length} sample request logs`);
 

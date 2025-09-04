@@ -88,8 +88,19 @@ Make the generated repository production-ready and easy to extend by an engineer
 ## API Endpoints
 
 ### Authentication
-- `POST /api/users/register` - Register new user
-- `POST /api/users/login` - Login user
+- `POST /api/auth/register` - Register new user (sends verify email when enabled)
+- `POST /api/auth/login` - Login user
+- `POST /api/auth/refresh` - Rotate refresh token, returns new pair
+- `POST /api/auth/logout` - Revoke refresh token
+- `POST /api/auth/verify-email` - Verify email with token
+- `POST /api/auth/password/reset-request` - Request password reset
+- `POST /api/auth/password/reset` - Reset password with token
+
+### Sessions
+- `GET /api/auth/sessions/me` - List your sessions (JWT)
+- `DELETE /api/auth/sessions/me/:id` - Revoke your session (JWT)
+- `GET /api/auth/sessions/:userId` - Admin list user sessions
+- `DELETE /api/auth/sessions/:id` - Admin revoke session
 
 ### Users (JWT required)
 - `GET /api/users/me` - Get current user
@@ -103,7 +114,7 @@ Make the generated repository production-ready and easy to extend by an engineer
 
 ## Environment Variables
 
-See `.env.example` for all required environment variables.
+See `.env.example` for all required environment variables, including email/SMTP and token TTLs.
 
 ## Docker
 

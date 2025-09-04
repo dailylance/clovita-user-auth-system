@@ -36,6 +36,17 @@ const configSchema = z.object({
   ENABLE_CACHE: z.coerce.boolean().default(true),
   CACHE_TTL_SECONDS: z.coerce.number().default(60),
   CACHE_MAX_ITEMS: z.coerce.number().default(10000),
+  // Auth lifetimes
+  ACCESS_TOKEN_TTL: z.string().default('15m'),
+  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(30),
+  // Email settings
+  ENABLE_EMAIL: z.coerce.boolean().default(false),
+  EMAIL_FROM: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().optional(),
+  SMTP_SECURE: z.coerce.boolean().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
 });
 
 const configResult = configSchema.safeParse(process.env);
